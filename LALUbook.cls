@@ -19,7 +19,7 @@
 
 % Declaration of options
 % ----------------------
-\DeclareBoolOption[false]{draft} % 预留：目前尚未实现未定稿标记
+\DeclareBoolOption[false]{draft} % 预留：尚无自定义未定稿标记；全局 draft 仍会影响支持它的宏包
 \DeclareBoolOption[true]{colors} % 是否让链接带颜色
 \DeclareBoolOption[false]{CJKthechapter} % 预留：目前尚未实现中文章编号天眉
 \DeclareStringOption{coverpage} % 预留：目前尚未使用的封面档档名
@@ -29,6 +29,17 @@
 
 % 将 10pt/11pt/12pt、oneside/twoside、openany/openright 等标准选项
 % 交由底层 ctexbook 处理。
+\newcommand*{\LALU@rejectpaperoption}{%
+    \ClassError{LALUbook}{Class option `\CurrentOption' conflicts with `geometry'}%
+        {Use `geometry=a4' for A4 paper. Supported layouts are `geometry=16k' and `geometry=a4'.}%
+}
+\DeclareVoidOption{a4paper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{a5paper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{b5paper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{letterpaper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{legalpaper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{executivepaper}{\LALU@rejectpaperoption}
+\DeclareVoidOption{landscape}{\LALU@rejectpaperoption}
 \DeclareDefaultOption{\PassOptionsToClass{\CurrentOption}{ctexbook}}
 
 \PassOptionsToPackage{dvipsnames}{xcolor} % 让 xcolor 带 dvipsnames 选项; tikz 随后会载入之.
