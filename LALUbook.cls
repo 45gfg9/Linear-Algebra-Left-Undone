@@ -19,13 +19,17 @@
 
 % Declaration of options
 % ----------------------
-\DeclareBoolOption[false]{draft} % 是否打上未定稿标记
+\DeclareBoolOption[false]{draft} % 预留：目前尚未实现未定稿标记
 \DeclareBoolOption[true]{colors} % 是否让链接带颜色
-\DeclareBoolOption[false]{CJKthechapter} % 是否让天眉的各章编号使用中文数字
-\DeclareStringOption{coverpage} % 封面档档名, 默认为空
-\DeclareStringOption{fontsetup} % 字体设定档档名
-\DeclareStringOption{titlesetup} % 章节标题设定档档名
+\DeclareBoolOption[false]{CJKthechapter} % 预留：目前尚未实现中文章编号天眉
+\DeclareStringOption{coverpage} % 预留：目前尚未使用的封面档档名
+\DeclareStringOption{fontsetup} % 预留：目前尚未使用的字体设定档档名
+\DeclareStringOption{titlesetup} % 预留：目前尚未使用的章节标题设定档档名
 \DeclareStringOption[16k]{geometry} % 版面（默认 16k）
+
+% 将 10pt/11pt/12pt、oneside/twoside、openany/openright 等标准选项
+% 交由底层 ctexbook 处理。
+\DeclareDefaultOption{\PassOptionsToClass{\CurrentOption}{ctexbook}}
 
 \PassOptionsToPackage{dvipsnames}{xcolor} % 让 xcolor 带 dvipsnames 选项; tikz 随后会载入之.
 
@@ -49,6 +53,7 @@
 
 % 设置天眉所需
 \RequirePackage{fancyhdr}
+\RequirePackage{emptypage}
 
 \RequirePackage{graphicx}
 \RequirePackage{float}
@@ -93,21 +98,16 @@
         right = 20mm,
         headheight = 5ex,
         headsep = 5ex,
-        textwidth = 132mm,
-        textheight = 198mm,
-        twoside,
-        asymmetric, % 单双数页不分
         % bindingoffset = 18pt,
-    }}{}
+    }}{% 载入 A4 版面设置或报告不支持的值
+    \IfStrEq{\@LALU@geometry}{a4}{
+        \geometry{a4paper}
+    }{
+        \ClassError{LALUbook}{Unknown geometry `\@LALU@geometry'}%
+            {Supported geometry values are `16k' and `a4'.}
+    }}
 
-\IfStrEq{\@LALU@geometry}{a4}{% 载入 a4 版面设置
-    \geometry{
-        a4paper,
-        twoside,
-        asymmetric,
-    }}{}
-
-% 使空页恒空
+% 章首页不显示页眉；由 emptypage 保证双面排版所插入的空页恒空
 \fancypagestyle{plain}{
     \fancyhead{}
     \renewcommand{\headrulewidth}{0pt}
