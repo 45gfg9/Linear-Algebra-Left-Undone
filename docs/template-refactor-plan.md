@@ -510,7 +510,67 @@ build/answers/LALU-<source-hash>/
 | `ref/autoref/cref/crefrange/nameref` | 中文名称、范围格式、链接目标正确 |
 | 答案单元中的定理与证明 | 使用答案单元父编号，不污染后续历年卷 |
 
-## 四、分阶段落地顺序
+## 四、Breaking changes 与源码迁移
+
+这里把“breaking change”限定为：升级模板后，旧源码、构建命令、生成文件或外部链接即使重新编译，也不能自动保持原有语义，必须改写或显式迁移。单纯的内部实现替换、可接受的分页微调，以及清理辅助文件后即可恢复的变化不单独算作 breaking change。
+
+### 4.1 明确会发生的兼容性中断
+
+| 计划中的变化 | 中断点 | 当前仓库中受影响的位置与定位方法 | 新写法或迁移动作 |
+| --- | --- | --- | --- |
+| 标准 `chapter` 改作所有有编号顶层单元的结构流水号 | 裸 `\value{chapter}`、`\arabic{chapter}`、`c@chapter` 及手工 `\setcounter`/`\addtocounter` 不再表示普通“第 N 讲” | 当前只在 `讲义/线性代数荣誉课辅学讲义.tex` 的章节和答案生成逻辑中出现；`讲义/专题/` 与 `讲义/其它/` 的手写正文目前没有这类依赖 | 普通讲次改读 `\LALUNormalChapterNumber`，当前可见引用改读 `\LALUCurrentReferenceNumber` 或 `\thechapter`，单元类型改查 `kind`；正文不得再直接改 `chapter` |
+| 无编号状态不再泄漏上一编号单元 | frontmatter、backmatter 或 `\chapter*` 后的 `\thechapter` 将为空；依赖其继续返回上一章号的宏会改变行为 | 当前手写正文没有这种读取；迁移时仍须把 `\thechapter`/`\theHchapter` 纳入模板和扩展宏扫描 | 需要最近普通讲次时显式查询 `\LALUNormalChapterNumber`，需要当前单元时先检查状态 API；不得把无编号边界后的 `\thechapter` 当历史快照 |
+| 删除跨章分组和历史 marker | `\LUgroupsancheck`、`\LUsection` 以及 `\@exist@LUchapter@...`/`\@exist@LUsection@...` 最终会消失 | 定位于主模板、`讲义/LALU-answers.tex` 和生成的 `LALU-ans-contents.tex`；各个未竟专题文件开头的 `\LUchapter{...}` 不受影响 | 删除主文件末尾等处的手工 sanity check；答案册只消费 `\LALUAnswerUnit` 等 manifest 事件，不再手工设置 `LUsection` 或探测 marker |
+| 对 phase 和单元位置执行严格校验 | 以前“碰巧可编译”的 `mainmatter` 首章之前的 LU、front/backmatter 或 appendix 中的 LU/习题、`secnumdepth` 抑制编号时的 LU，以及非法阶段回退将直接报错；重复 phase 命令不再重置页码或计数器 | 从主文件的 `\frontmatter`、`\mainmatter`、`\appendix`、`\backmatter` 和各文件的 `\LUchapter`、`\begin{exercise}` 定位；当前正式输入顺序没有发现违规项 | 在 `\mainmatter` 中先建立有编号的普通 `\chapter`，再写 `\LUchapter`；习题只放在普通章或 LU 单元内。`\chapter*` 后不能直接挂习题，但仍可继续写下一个 LU；首阶段不支持附录习题 |
+| 答案交换格式和输出路径改为带版本的 manifest | `LALU-ans-contents.tex` 的文件名、内容语法和可从源码目录直接 `\input` 的约定不再保证 | 主要影响主模板、`讲义/LALU-answers.tex`、`讲义/Makefile`、latexmk 配置和 CI，不要求逐篇改普通 inline 答案 | 构建命令把 manifest 路径显式传给答案册；只通过 manifest reader 读取 `\LALUAnswerUnit`/`Group`/`Item` 事件，生成文件一律不可手工编辑 |
+| 空答案和空答案单元获得明确状态语义 | 纯空白 `answer` 将变为 `omitted`；完全没有 `answered`/`todo` 的习题单元不再输出标题、目录项或空白分页 | 当前有 29 个纯空 `answer`，集中在第 2、3、4、7、8、9、10 讲；另有 15 个完全没有 `answer` 的单元，分布在第 6、12、16–25 讲及未竟专题 4、8、14 | 确实没有答案时删除空环境或接受省略；需要保留答案项或整个单元时，至少加入一个计划接口 `\begin{answer}[status=todo] ... \end{answer}` |
+| 答案单元和附录采用新的机器锚点命名空间 | 答案单元切换到 `LALUanswerunit.answer.*`，附录使用 `chapter.APP.*`；硬编码到旧 href 的外部 PDF 深链接或工具会失效 | 当前正文没有编号附录，正文的 `\label`/`\ref` 键原则上不改；主要迁移面是答案 PDF 的外部链接和下游 PDF 工具 | 发布说明列出 href 映射并尽可能提供一个版本的旧锚点别名；同时清理辅助文件并重建主讲义、答案册和 `xr` 缓存 |
+| `ntheorem` 退出依赖面 | 外部文档若依赖类“顺便加载” `ntheorem`，或直接调用它的样式/声明命令，将不再工作 | 当前正文没有直接调用；仓库内只有 `LALUbook.cls` 的 `\theoremheaderfont`、`\theorembodyfont` 等模板设置需要迁移 | 自定义定理接入新的集中声明表和 amsthm/tcolorbox 适配层；外部文档不得依赖类的传递包依赖 |
+
+上表中的“计划接口”只是目标写法，目前尚不是可执行命令；它们应在实现对应阶段时固定下来。一旦进入作者文档和正文，就必须遵循正常的弃用周期，不能在后续提交中无迁移说明地再次改名。
+
+### 4.2 条件性 breaking changes 与迁移审计
+
+下列事项要么只有在采用可选设计时才构成兼容性中断，要么必须人工审计，但不能预先假定所有命中处都需要改写：
+
+- 如果答案册为 `\externaldocument` 加固定前缀，答案正文中指向主讲义的 `\ref`/`\nameref`/`\autoref`/`\cref` 要改为 `\mainref`/`\mainnameref`/`\mainautoref`/`\maincref` 等成套 helper。当前入口位于 `讲义/LALU-answers.tex`；启用前应先扫描所有 `answer` 载荷中的引用并验证没有同名标签。
+- 如果稳定习题 ID 从“建议”升级为“必填”，`exercise` 中相应的普通 `\item` 要改为 `\exitem[id=...]`。迁移初期必须继续自动生成 ID 并告警，不能一次性破坏现有全部习题。
+- amsthm proof 的公共语法和普通自动 QED 行为应保持兼容，但 QED 的具体位置需要视觉审计。当前有 27 个 proof 直接以 display 结束；典型位置为 `讲义/专题/9 矩阵运算进阶.tex:443`、`讲义/专题/13 多项式.tex:542` 和 `讲义/专题/21 线性代数与几何.tex:49`。只有希望方块留在最后一行公式内的用例才需加入 `\qedhere`，不能把 27 处一律机械改写；当前正文没有手写 `\square`。
+- inline `answer` 本来就不保证支持 verbatim、minted、listing 或特殊 catcode，因此 file payload 是新增能力而非当前仓库的 breaking change。若外部答案依赖这些“碰巧工作”的未保证行为，则应把内容移到独立片段，并通过计划接口 `\answerfile{answers/<stable-id>.tex}` 引用；当前基线没有此类载荷。
+- 如果在兼容期后移除 proof/solution 的第二个原始 tcolorbox 选项，外部源码中的 `\begin{proof}[说明][任意样式]` 或同形 `solution` 要迁移到受控 key。当前仓库只有第一可选参数用例，没有发现第二可选参数。
+- 如果在更晚版本移除 `LUchapter`、`LUgreekchap`、`LUsection` counter alias，外部源码对这些 counter 的直接读取也会失效；当前仓库中的直接使用只在模板和生成文件内，应先由统一状态 API 取代。
+- 其他 section、公式、定理等后代 destination 只有在确认现值冲突时才改变；普通章和 LU 的既有 destination 仍以保留为默认。若不得不改变，必须按外部 PDF 深链接的 breaking change 处理，而不能把“清理 `.aux` 即可”当作充分迁移说明。
+- 支持引擎矩阵尚未最终确定；一旦决定不支持 LuaLaTeX 等引擎，这些非正式构建流程将改为早期失败。当前 Makefile 使用 XeLaTeX，不影响正文；若要把其他引擎列为受支持，须先补齐字体、索引、书签和回归测试。
+- 如果无法可靠恢复 `\includeonly` 所需的非 counter 状态，可以明确禁止跨普通章/LU 的选择构建。当前主讲义使用 `\input`，因此仓库正文不受影响；外部使用者若依赖 `\includeonly`，应改为完整构建或等待 checkpoint 协议落地。
+
+### 4.3 明确保留兼容的作者接口
+
+以下常用正文写法不应因本次重构而修改：
+
+- 普通章继续写 `\chapter{标题}`，未竟专题继续写 `\LUchapter{标题}`；新增的 `\LUchapter[短标题]{完整标题}` 只是可选扩展。
+- 普通 inline 答案继续写 `\begin{answer} ... \end{answer}`；只有空占位和特殊 catcode 载荷需要迁移。
+- definition、example、lemma、theorem、corollary、axiom 继续保留当前双参数形式和标签前缀。
+- `\begin{proof}[说明]` 与 `\begin{solution}[说明]` 的第一可选参数继续有效。
+- 既有 `\label` 键、普通章 `chapter.N` 和未竟专题 `chapter.LU.N` 锚点应保留；正常的 `\ref`、`\nameref`、`\autoref` 和 `\cref` 源码不要求批量改写。
+
+### 4.4 迁移时的定位清单
+
+实现各阶段前至少运行下列扫描；它们用于定位受影响的写法，不代表匹配项都必须修改：
+
+```zsh
+rg -n --glob '*.tex' --glob '*.cls' '\\(value|arabic|setcounter|addtocounter)\{chapter\}|c@chapter|\\theH?chapter' .
+rg -n --glob '*.tex' '\\LUgroupsancheck|\\LUsection|@exist@LU(chapter|section)' 讲义
+rg -n --glob '*.tex' '\\(frontmatter|mainmatter|appendix|backmatter|LUchapter)|\\begin\{exercise\}' 讲义
+rg -n -U --glob '*.tex' '\\begin\{answer\}(?:[[:space:]]|%[^\n]*\n)*\\end\{answer\}' 讲义
+comm -23 <(rg -l -F '\begin{exercise}' 讲义/专题 讲义/其它 | sort) <(rg -l -F '\begin{answer}' 讲义/专题 讲义/其它 | sort)
+rg -n --glob '*.tex' --glob '*.cls' '\\(theoremheaderfont|theorembodyfont|newtheorem)' .
+rg -n --glob '*.tex' '\\begin\{(proof|solution)\}|\\(qedhere|square)' 讲义
+rg -n -U --pcre2 --glob '*.tex' '(?:\\\]|\\end\{(?:equation\*?|align\*?|alignat\*?|gather\*?|multline\*?|displaymath)\})\s*(?:%[^\n]*\n\s*)*\\end\{proof\}' 讲义
+```
+
+迁移顺序应是：先改类、主模板、答案模板和构建脚本，再处理扫描命中的少量正文特殊情况，最后删除全部生成文件做一次冷构建。普通章节与未竟专题文件不应为了适配内部状态机而插入新的 helper 命令。
+
+## 五、分阶段落地顺序
 
 ### 阶段 0：冻结基线与建立检查工具
 
@@ -553,7 +613,7 @@ build/answers/LALU-<source-hash>/
 
 每个阶段独立可回退，不把章节、答案和定理三类高风险改动塞进同一个不可审查提交。
 
-## 五、总体验收标准
+## 六、总体验收标准
 
 重构实现完成的最低标准如下：
 
