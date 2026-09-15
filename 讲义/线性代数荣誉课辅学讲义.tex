@@ -102,13 +102,24 @@
 \newcounter{exgroupcounter}
 \ExplSyntaxOn
 \newenvironment{exercise}{
-    \iow_now:Nx \g_lalu_ans_iow { \cs_if_exist:cTF { @exist@LUchapter@\arabic{chapter} } { \exp_not:N \setcounter{LUsection}{ \theLUchapter-1 } \exp_not:N \LUsection } { \exp_not:N \setcounter{section}{ \thechapter-1 } \exp_not:N \section } { \cs:w @LALU@chaptername \cs_end: } }
+    \iow_now:Nx \g_lalu_ans_iow {
+        \cs_if_exist:cTF { @exist@LUchapter@\arabic{chapter} }
+            {
+                \exp_not:N \setcounter{LUsection}{ \int_eval:n { \value{LUchapter} - 1 } }
+                \exp_not:N \LUsection
+            }
+            {
+                \exp_not:N \setcounter{section}{ \int_eval:n { \value{chapter} - 1 } }
+                \exp_not:N \section
+            }
+            { \cs:w @LALU@chaptername \cs_end: }
+    }
     \setcounter{exgroupcounter}{0}
     \NewDocumentEnvironment{exgroup}{o}{
         \IfValueTF{##1}{
             \setcounter{exgroupcounter}{##1}
         }{
-            \refstepcounter{exgroupcounter}
+            \stepcounter{exgroupcounter}
         }
         \subsection*{\Alph{exgroupcounter}组}
         \begin{enumerate}
@@ -189,8 +200,7 @@
 \includepdf[
     pages={1},
     noautoscale=true,
-    trim=0 0 0 10mm,
-    clip,
+    width=\paperwidth,
 ]{./figs/cover-16k.pdf}
 
 \songti
