@@ -58,6 +58,7 @@
 \RequirePackage{mathrsfs}
 \RequirePackage{amssymb}
 \RequirePackage{mathtools}
+\RequirePackage{amsthm}
 
 % 加入字串处理功能
 \RequirePackage{xstring}
@@ -72,7 +73,6 @@
 \RequirePackage{multicol}
 \RequirePackage{pdfpages}
 \RequirePackage{indentfirst}
-\RequirePackage{ntheorem}
 \RequirePackage{titlesec}
 \RequirePackage{mismath} % 包含 rank, span 等运算符
 \RequirePackage{zhnumber}
@@ -91,10 +91,6 @@
 
 % 首行缩进 2 字符
 \setlength{\parindent}{2em}
-
-% 定理字体
-\theoremheaderfont{\bfseries\heiti}
-\theorembodyfont{\fangsong}
 
 \usetikzlibrary{shapes.symbols}
 
@@ -172,8 +168,22 @@
     #3,
 }
 
-\NewDocumentEnvironment{proof}{O{}O{}}{\begin{tcblaluthmbox}{{\heiti 证明}}{#1}{#2}\fangsong}{\hspace*{\fill}$\square$\end{tcblaluthmbox}}
-\NewDocumentEnvironment{solution}{O{}O{}}{\begin{tcblaluthmbox}{{\heiti 解}}{#1}{#2}\fangsong}{\end{tcblaluthmbox}}
+% amsthm 负责 QED 栈和 \qedhere，tcolorbox 只负责外观。
+\renewcommand*{\qedsymbol}{$\square$}
+\RenewDocumentEnvironment{proof}{O{}}{%
+    \pushQED{\qed}%
+    \begin{tcblaluthmbox}{{\heiti 证明}}{#1}{}%
+    \fangsong\ignorespaces
+}{%
+    \popQED
+    \end{tcblaluthmbox}%
+}
+\NewDocumentEnvironment{solution}{O{}}{%
+    \begin{tcblaluthmbox}{{\heiti 解}}{#1}{}%
+    \fangsong\ignorespaces
+}{%
+    \end{tcblaluthmbox}%
+}
 
 \NewDocumentCommand{\term}{m}{{\sffamily\heiti\bfseries{#1}}}
 
