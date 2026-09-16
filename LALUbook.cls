@@ -170,8 +170,17 @@
 
 % amsthm 负责 QED 栈和 \qedhere，tcolorbox 只负责外观。
 \renewcommand*{\qedsymbol}{$\square$}
+% 普通段落结尾保留旧模板的精确胶水；数学模式仍转给
+% amsthm，使 \qedhere 可以在 equation/align 内正确放置方块。
+\newcommand*{\LALU@qed}{%
+    \ifmmode
+        \mathqed
+    \else
+        \hspace*{\fill}\qedsymbol
+    \fi
+}
 \RenewDocumentEnvironment{proof}{O{}}{%
-    \pushQED{\qed}%
+    \pushQED{\LALU@qed}%
     \begin{tcblaluthmbox}{{\heiti 证明}}{#1}{}%
     \fangsong\ignorespaces
 }{%
