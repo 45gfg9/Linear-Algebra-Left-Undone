@@ -1,6 +1,21 @@
 # LALU 模板重构方案
 
-> 状态：设计稿。本文只描述后续实现方案，不改变当前任何 TeX、索引或构建行为。
+> 状态：本轮实施与迁移记录。本文同时记录已落地的内部重构和明确延后的提案；“后续提案”不构成本轮验收要求。
+
+## 本轮范围与兼容边界
+
+本轮以仓库正文（`讲义/专题/`、`讲义/历年卷/`、`讲义/其它/`）和最终 PDF 为兼容边界。`LALUbook.cls`、主文件 `讲义/线性代数荣誉课辅学讲义.tex`、答案模板 `讲义/LALU-answers.tex` 中仅用于支撑实现的 counter、helper、marker、生成文件协议和 href anchor **不是兼容接口**；只要正文无需改写、既有标签/引用语义和 PDF 可见行为不变，它们可以直接删除、改名或换成新 schema，不设过渡包装器。
+
+本轮状态如下：
+
+| 子系统 | 本轮状态 | 兼容要求 |
+| --- | --- | --- |
+| 定理与证明 | 已切换到集中声明的 tcolorbox theorem + amsthm proof；已删除 proof/solution 未使用的第二个原始 tcolorbox 选项 | 六类定理的双参数接口、标签前缀、分别计数、proof/solution 第一可选说明及可见 QED/盒子行为不变 |
+| 正文/未竟专题章节状态 | 已切换到显式状态机并完成 fixture 与整书回归 | `\chapter`、`\LUchapter`、中文标题编号、“上一正文章节 + 希腊字母”的引用编号、目录和 PDF 可见版式不变；旧 counter alias、开放分组和 marker 无需保留 |
+| 答案生成与答案册 reader | 已切换到带版本的语义 manifest、独立 reader 和 staging 发布 | 正文继续使用普通 `answer` 环境；答案项、空答案、无答案单元及其既有分页在本轮保持可见行为不变；旧生成文件语法与路径无需兼容 |
+| 稳定题目 ID、file payload、空单元省略策略及其余条件性变化 | 延后 review | 本轮不要求“在前面插题后已有 ID 不变”，不引入需要正文改写的新答案接口，也不启用其他条件性 breaking change |
+
+这里的“正文无需改写”只约束作者源文件的既有公共调用。干净重编译、删除旧辅助文件、更新 Makefile 以及同步修改上述三份 supporting structure 都属于本轮正常迁移，不算正文 breaking change。
 
 ## 目标与不变量
 
@@ -12,8 +27,8 @@
 - 未竟专题继续使用 `\LUchapter{标题}`；标题编号显示为“未竟专题 X”，其中 `X` 是未竟专题的全局中文序号。
 - 未竟专题的数字引用继续由“上一普通正文编号 + 希腊字母”组成。例如第一讲后的前两个未竟专题分别引用为 `1ε`、`1δ`。
 - 未竟专题内的节、公式、图表和定理继续沿用该数字引用，例如 `1ε.2`。
-- 正文和答案册中的既有标签键、目录层级及主要版式应保持兼容；确需改变的辅助文件格式必须通过干净重编译迁移。
-- 所有 Hyperref destination 必须唯一、稳定、只含适合机器处理的 ASCII 内容；显示编号不得直接充当锚点编号。
+- 正文和答案册中的既有标签键、引用结果、目录层级、内容、顺序及分页应保持；内部辅助文件格式可改变，但必须通过干净重编译得到一致产物。
+- 所有 Hyperref destination 必须在单次产物中唯一、确定且只含适合机器处理的 ASCII 内容；显示编号不得直接充当可能冲突的锚点编号。旧 PDF 的原始 href 名称不属于本轮兼容承诺。
 
 以下三个概念应始终分离：
 
@@ -21,7 +36,7 @@
 | --- | --- | --- |
 | 标题显示编号 | `未竟专题十四` | 章标题、答案册单元标题、目录章条目 |
 | 数字引用编号 | `23ε` | `\ref`、节/公式/定理的父编号 |
-| 机器锚点编号 | `chapter.LU.14` | Hyperref destination、外部 PDF 链接 |
+| 机器锚点编号 | `chapter.LU.14` | Hyperref destination（内部实现，可改名，不承诺旧 PDF 深链接） |
 
 ## 一、正文、未竟专题与答案册单元
 
@@ -41,7 +56,7 @@
 | `unnumbered-serial` | 实际无编号顶层标题的内部流水号，仅用于必要的唯一锚点 | `3` |
 | `title` | 完整标题，保持未展开 token | `范畴论视角下的线性代数` |
 | `short-title` | 页眉、目录所用短标题；缺省时等于完整标题 | 同上 |
-| `unit-id` | 稳定的逻辑单元标识 | `lu:14` |
+| `unit-id` | 当前 manifest 内唯一的逻辑单元标识 | `lu:14` |
 
 实现上可使用 expl3 的全局 token list、integer 和 boolean；对外只暴露查询命令，不允许正文直接改内部变量。至少提供以下语义接口：
 
@@ -61,8 +76,8 @@
 | --- | --- | --- |
 | 标准 `chapter`（即 `c@chapter`） | 所有**有编号顶层单元**的结构流水号；驱动标准 reset 链和 package hook | 否 |
 | 新增 `LALUnormalchapter` | 只在普通正文开始时递增，表示“第 N 讲”中的 `N` | 是 |
-| `LUchapter` | 只在未竟专题开始时递增，表示“未竟专题 X”中的全局序号 | 是 |
-| `LUgreekchap` | 同一普通正文之后的未竟专题 slot | 通过希腊字母显示 |
+| 内部 unfinished serial | 只在未竟专题开始时递增，表示“未竟专题 X”中的全局序号 | 是 |
+| 内部 unfinished slot | 同一普通正文之后的未竟专题次序 | 通过希腊字母显示 |
 | 新增 `LALUappendixchapter` | 附录显示编号 `A`、`B`…… | 仅 appendix 模式 |
 | 内部 `LALUunnumberedunit` | 每个实际无编号顶层标题的锚点流水号；阶段命令本身不递增 | 否 |
 
@@ -80,9 +95,9 @@
 未竟专题转换流程为：
 
 1. 要求当前处于 `mainmatter`、已经存在普通正文，并且标准 chapter 判定本次会编号；任一条件不满足都必须在修改任何计数器或样式前给出明确的 package error，而不是生成 `0ε` 或一个半初始化单元。
-2. 将当前 `LALUnormalchapter` 快照为 `normal-base`，设置 `kind=unfinished`，并分别递增全局 `LUchapter` 与当前普通章的 `LUgreekchap`。普通章入口已经把 slot 归零，因此这里不再覆盖 `normal-base` 后做含义不清的“是否同章”比较。
+2. 将当前普通正文计数快照为 `normal-base`，设置 `kind=unfinished`，并分别递增内部的全局 unfinished serial 与当前普通章的 unfinished slot。普通章入口已经把 slot 归零，因此这里不再覆盖 `normal-base` 后做含义不清的“是否同章”比较。
 3. 调用同一个最终标准 `\chapter`；结构 `c@chapter` 再递增一次并执行全部标准 reset/hook。
-4. `\thechapter` 在本次调用及其正文期间返回保存的 `normal-base + Greek(slot)`；章标题的中文序号则来自 `LUchapter`。
+4. `\thechapter` 在本次调用及其正文期间返回保存的 `normal-base + Greek(slot)`；章标题的中文序号则来自内部 unfinished serial。
 
 `\chapter*` 结束当前编号单元但不清除最近普通章及其 LU slot。因而随后在 `mainmatter` 中再次调用 `\LUchapter` 是允许的，并继续使用下一个 slot；例如 `chapter A -> LU B -> chapter* -> LU C` 的两个 LU 引用仍依次为 `1ε`、`1δ`。如果希望星号章成为禁止后续 LU 的更强边界，应另设显式命令，不能通过重置 slot 得到可能重复的编号。
 
@@ -175,14 +190,13 @@ Hyperref 锚点规则如下：
 | 未竟专题内 section | 从唯一章锚点派生 | `section.LU.14.2` |
 | 附录 | `APP.<appendix-display>` | `chapter.APP.A` |
 | 实际无编号顶层标题 | `UNNUMBERED.<internal-serial>`，仅作内部唯一性用途 | `chapter.UNNUMBERED.3` |
-| 答案单元 | `answer.normal.<N>` 或 `answer.LU.<serial>` | `LALUanswerunit.answer.LU.14` |
-| 习题组 | 包含答案单元 ID 和组次序 | `LALUexgroup.lu.14.C` |
+| 答案单元 | 使用 manifest 内的顺序 unit ID | `LALUanswerunit.answer.answer-unit:29` |
 
 锚点表示必须完全可展开并只含 ASCII。`\theHchapter` 同样按 `kind` 分派：普通章返回普通显示编号，未竟专题返回 `LU.<unfinished-serial>`，附录返回 `APP.<appendix-display>`，无编号状态在确需 chapter 型锚点时返回 `UNNUMBERED.<serial>`。它不能直接使用结构 `c@chapter`，否则在插入未竟专题后会改变普通章既有外链。`LUchapter` 只是标题流水号时使用 `\stepcounter`；真正承载紧随其后 `\label` 的标准 `chapter` 才使用 `\refstepcounter`，避免创建无用的第二锚点。
 
 标准 `\chapter*` 若已由 Hyperref 使用自己的 `chapter*.<linkcounter>` 命名空间，就继续沿用该机制；`UNNUMBERED.<serial>` 只是其他包确实展开 `\theHchapter` 时的确定性后备值，不能再额外创建一个与标准星号章重叠的 destination。
 
-为了最大限度兼容已有 PDF 外链，新实现应优先保留当前未竟专题锚点 `chapter.LU.<serial>`。普通章节锚点保持标准形式。若任何锚点必须改变，应在发布说明中列出，并考虑在一个迁移版本中添加旧 destination 别名。
+机器锚点属于 supporting structure，本轮不为旧 PDF 深链接保留 destination 别名。实现可以继续使用 `chapter.LU.<serial>`，也可以改用其他唯一 ASCII 命名；验收只检查正文标签键和 `\ref`/`\nameref`/`\autoref`/`\cref` 的语义、链接目标页面以及无重复 destination。引用锚点改名后必须干净重建 `.aux`、`.toc`、`.out` 和答案册的 `xr` 数据。
 
 默认引用语义保持如下：
 
@@ -229,19 +243,17 @@ Hyperref 锚点规则如下：
 
 可使用 `\section*` 加一次受控的目录/书签写入来保持现有视觉层级；公式和定理通过专用 `LALUanswerunit` 建立 reset 关系。这样答案册后半部分的普通 `\chapter`、`\section` 完全不受生成答案部分影响。
 
-新答案清单必须携带完整章节记录，不能让答案册根据“上一个 section 是什么”猜测 `normal-base` 或希腊 slot。`\LUsection` 保留为过渡包装器，仅用于读取旧的已生成文件，并给出一次性弃用警告；干净构建生成的新文件不得再输出 `\setcounter{LUsection}{...}` 或 `\LUsection`。
+新答案清单必须携带渲染所需的章节语义快照，不能让答案册根据“上一个 section 是什么”猜测 `normal-base` 或希腊 slot。`\LUsection`、对应 counter 和旧 marker 只存在于 supporting structure，可随新 reader 一次删除；干净构建生成的新文件只输出 `\LALUAnswerUnit` 等当前 schema 事件。
 
-### 1.6 兼容迁移
+### 1.6 内部替换范围与源码影响
 
-迁移期建议遵循以下策略：
+本轮不为 supporting structure 设置过渡期，迁移策略如下：
 
-- `\LUchapter{...}` 原调用不需要修改；新增短标题是向后兼容扩展。
-- 暂时保留 `LUchapter`、`LUgreekchap`、`LUsection` 计数器名字，并由新状态模型同步其值；新增的 `LALUnormalchapter` 是普通正文显示编号的权威来源。
-- `\LUgroupsancheck` 在一个过渡版本中保留为空操作并发出弃用提示，使主文件尾部或缓存生成文件不会立即报未定义；确认仓库内调用移除后再删除。
-- 旧的 `\@exist@LUchapter@...`、`\@exist@LUsection@...` 不再作为真值来源。若外部文档确有探测，可在过渡版只生成兼容标记，但内部逻辑不得读取它们。
-- 保留已有标签键和 `chapter.LU.<serial>` destination；所有 `.aux`、`.toc`、`.out`、`.fdb_latexmk` 应在切换实现时统一清理并完整重编译。
-- 新旧答案生成器先并行输出到不同构建目录，比较单元顺序、标题、组号、题号和答案正文；一致后才切换 `LALU-answers.tex` 的输入。
-- 旧 `LALU-ans-contents.tex` 是可丢弃构建产物，不承诺由新 reader 永久支持。过渡包装器只用于平滑升级，不能成为新状态模型的长期分支。
+- `\chapter{...}`、`\LUchapter{...}` 以及现有可选短标题等作者接口不修改。
+- `LUchapter`、`LUgreekchap`、`LUsection` counter alias、`\LUgroupsancheck`、`\@exist@LUchapter@...`、`\@exist@LUsection@...` 和跨章开放分组可直接删除，不同步、不警告，也不保留空操作包装器。
+- 旧 `LALU-ans-contents.tex` 及其中的 `\LUsection`/手工 counter 协议是可丢弃构建产物；新 reader 不读取它。Makefile 负责先生成并验证当前 manifest，再编译答案册。
+- 标签键和引用可见结果必须保持；原始 href 名称、内部 counter 值和生成文件事件名可以变化。切换后统一清理 `.aux`、`.toc`、`.out`、`.fdb_latexmk` 与旧答案产物并完整重编译。
+- 用旧、新 PDF 的页面数、抽取文本、目录/outline、代表页面和链接目标作回归比较；这种对比是验证可见行为，不是要求同时维护两套生产 reader。
 
 这一首选模型会有意改变裸 `\value{chapter}`、`\arabic{chapter}` 和直接读取 `c@chapter` 的内部语义：它们返回的是“第几个有编号顶层单元”，不再等于普通正文的显示编号。迁移前必须全仓库扫描这些用法，并根据意图替换为语义 API：
 
@@ -252,7 +264,7 @@ Hyperref 锚点规则如下：
 
 当前仓库扫描结果是：`\value{chapter}`、`\arabic{chapter}`、`\setcounter{chapter}`、`\addtocounter{chapter}` 或 `c@chapter` 这类 raw 模式只出现在主模板现有章节逻辑中；答案模板还会重定义 `\thechapter` 并根据章节状态组织答案，因此两份模板都必须迁移，而正文内容没有直接依赖这些 raw 模式。迁移后应对全部手写源码启用静态检查。检查只允许统一章节模块中为 reset、checkpoint 或底层断言而登记的少量结构用途白名单，并排除 `.aux` 等生成文件；不能仅检查正文而放过模板内部继续把 raw chapter 当显示号的代码。
 
-如果实际外部使用者证明必须保持“裸 `chapter` 值等于普通正文显示编号”，才启用次选兼容方案：在一个严格封装且带断言的适配器中，未竟专题调用前把 `chapter` 临时减一，再交给标准 `\chapter` 加回。该方案仍优于跨章开放分组，但会复用结构 counter、增加异常恢复复杂度，也使 hook 观察到的计数值依赖调用阶段；它不应作为默认设计。
+不再提供“裸 `chapter` 值等于普通正文显示编号”的次选兼容方案。仓库扫描表明这种读取只属于 supporting structure；继续临时回退 `chapter` 会重新引入重复锚点和 hook 状态歧义。若未来新增作者级查询需求，应暴露语义 API，而不是把结构 counter 重新定义成公共接口。
 
 ### 1.7 章节与链接测试矩阵
 
@@ -284,7 +296,7 @@ Hyperref 锚点规则如下：
 | 答案普通单元 -> LU 单元 -> 普通单元 | 显示与正文映射一致 | 后续历年卷 section/公式不受污染 |
 | 全仓手写源码静态扫描 | raw chapter 只剩登记的结构用途 | 模板和正文均无把 `value/arabic/setcounter/addtocounter{chapter}` 或 `c@chapter` 当显示号的调用；生成文件被排除 |
 
-测试至少在受支持的最旧 TeX Live 与当前 TeX Live 上使用 XeLaTeX 执行。若 LuaLaTeX 不在支持范围，应在类加载时明确拒绝，而不是让字体、索引或书签在中途失败。日志检查必须把以下内容视为失败：
+本轮只要求使用本机 MacTeX 的 XeLaTeX 完成最小 fixture 和整书构建，不额外验证 Docker、其他 TeX Live 版本或 LuaLaTeX。日志检查必须把以下内容视为失败：
 
 - `destination with the same identifier`；
 - 未定义引用或多轮后仍要求 rerun；
@@ -296,30 +308,30 @@ Hyperref 锚点规则如下：
 
 ### 2.1 单一源数据与记录模型
 
-答案的权威源仍是作者编辑的源码；任何生成的 `.tex` 或 manifest 都是可删除、不可手工编辑的构建产物。每条答案记录至少包含：
+答案的权威源仍是作者编辑的源码；任何生成的 `.tex` 或 manifest 都是可删除、不可手工编辑的构建产物。本轮 manifest 包含：
 
-- schema 版本；
-- 主文档身份和源文件哈希；
-- 当前章节记录的完整快照；
+- schema 版本和构建 job 身份；
+- 渲染所需的章节语义快照（kind、normal base、unfinished serial/slot、unit ID 和标题）；
 - 习题组序号及显示标签；
-- 题目在组内的逻辑序号、显示标签和稳定 ID；
+- 题目在组内的逻辑序号、显示标签和本次生成中唯一的内部 ID；
 - 答案状态：`answered`、`todo` 或 `omitted`；
-- 正文载荷类型：`inline-token` 或 `file`；
-- 可选源文件与行号，仅供诊断。
+- 未展开的 inline-token 正文；
+- 记录数和结束 sentinel，供发布脚本与 reader 校验。
 
-稳定 ID 的推荐缺省形式为 `<unit-id>/<group>/<item>`，例如 `lu:14/C/2`。作者可显式指定更稳定的语义 ID；一旦发布，不应因插入前一题而改变已有 ID。
+本轮 schema 2 使用 manifest 内的连续顺序 ID：`answer-unit:N`、`answer-group:N`和 `answer-item:N`。它们只承诺在单份 manifest 中唯一且与事件顺序一致，因而同章多个 `exercise`、重复显示组号或同题多个 `answer` 也不会制造内部冲突。在前面插入题目后保持已有 ID 不变的“发布级稳定 ID”明确不在本轮范围，也不新增 `\exitem[id=...]` 等作者接口。该目标留待后续单独设计。
 
 生成文件应是语义事件流，而不是预先写死 `\section`、`\setcounter`、`\subsection*` 等版式命令。例如 manifest 只允许调用：
 
 ```tex
 \LALUAnswerManifestBegin{...}
 \LALUAnswerUnit{...}
-\LALUAnswerGroup{...}
+\LALUAnswerGroupBegin{...}
 \LALUAnswerItem{...}{...}
+\LALUAnswerGroupEnd{...}
 \LALUAnswerManifestEnd{...}
 ```
 
-答案册 reader 负责把记录渲染成标题和列表。这样正文编号策略改变时无需重新设计文本序列化格式。
+每个事件前还有一条受限 ASCII marker，供发布脚本在不解析任意 TeX 正文的前提下校验顺序、ID 和计数。答案册 reader 再使用独立状态机校验同一事件流并渲染标题和列表。每个 item 单独占一个物理行，答案 body 作为不透明、未展开 token 载荷传递。
 
 ### 2.2 编号与普通/未竟映射
 
@@ -333,18 +345,17 @@ Hyperref 锚点规则如下：
 - 嵌套 enumerate 只影响答案正文内部编号，不得改变所关联的外层题号。
 - 答案册使用 manifest 中的 `normal-base`、`unfinished-serial` 和 `unfinished-slot` 渲染单元，绝不根据前一个已输出答案单元推算。
 
-迁移初期可自动生成稳定 ID 并记录告警；中长期建议提供 `\exitem[id=...]` 或等价接口，让题目和答案的关联显式化。
+本轮按 manifest 事件顺序自动生成内部 ID，显示单元/组/题号另作元数据保存，不对正文发迁移告警。显式语义 ID 若将来确有跨版本引用需求，再作为会改变作者写法的独立提案 review。
 
-### 2.3 token 保真与 verbatim
+### 2.3 inline token 边界
 
-单一接口不能同时可靠地捕获任意 TeX token 和 verbatim 内容，因此应明确提供两种载荷：
+本轮只保留现有 `\begin{answer}...\end{answer}` 的 inline-token 写法。答案可包含用于普通文字和数学排版的 LaTeX token、平衡花括号、段落和常规宏；生成器以未展开 token 保存，禁止使用 `\tl_to_str:n`、`x` 型完全展开或 `\scantokens`。
 
-1. `inline-token`：兼容当前 `\begin{answer}...\end{answer}`。支持平衡花括号、段落和普通宏；以未展开 token 保存，禁止使用 `\tl_to_str:n`、`x` 型完全展开或 `\scantokens`。该模式明确不支持 verbatim、minted 及依赖特殊 catcode 的内容。
-2. `file`：答案正文保存在独立 `.tex` 片段中，manifest 只记录路径，答案册在正常输入阶段 `\input` 它。verbatim、listing、复杂 catcode 和很长答案必须使用该模式。
+`answer` 明确不支持 verbatim、minted、listing 或依赖特殊 catcode 的内容，本轮测试也不覆盖这些输入。这不是对当前正文的兼容性中断：仓库扫描没有此类答案，用户已确认可以把 inline answer 视为普通 LaTeX token。不要为不存在的特殊载荷编写外部正则解析器。
 
-不建议编写一个外部正则表达式解析器去“理解”任意 TeX 并复制 `answer` 环境：嵌套环境、注释、条件分支和 verbatim 会使该方案不可可靠。迁移脚本可以机械地拆分已知格式，但拆分结果必须经过 TeX 编译和内容对比。
+把答案人工拆到独立文件或新增 `\answerfile`/file payload 会改变作者写法，当前不实施。若以后确有需求，应先 review 是引入显式 file 接口，还是用其他方式从同一源代码生成两份 PDF；不能把特殊 catcode 支持悄悄塞进当前 inline 捕获器。
 
-标题、题号等元数据与答案正文分开序列化。元数据需要 PDF 字符串时单独转换；不得为了生成元数据而展开正文。生成文件应保留合理换行，避免每条长答案变成单个超长输入行。
+标题、题号等元数据与答案正文分开序列化。元数据需要 PDF 字符串时单独转换；不得为了生成元数据而展开正文。schema 2 刻意让每个 item 的命令及不透明 body 各占一个完整物理行，发布器只校验该行的固定外层结构，不展开或按行解析 body。
 
 需要额外验证答案正文中的以下对象：
 
@@ -352,21 +363,19 @@ Hyperref 锚点规则如下：
 - 浮动体与图片相对路径；
 - 脚注、索引项、局部宏；
 - display math 末尾的 QED；
-- verbatim 文件载荷。
 
 为避免答案册自身标签与 `\externaldocument` 导入的正文标签相撞，建议给外部标签添加固定前缀并提供 `\mainref`/`\mainnameref` 辅助命令；是否启用应先以标签清单验证兼容性。
 
 ### 2.4 空答案与占位语义
 
-“没有 `answer` 环境”和“显式存在一个空 `answer` 环境”都不应默认制造答案册空白页。建议规则为：
+本轮以 PDF 可见行为不变为先，继续区分“没有 `answer` 环境”和“显式存在一个空 `answer` 环境”，并保留旧答案册已经排出的空答案项、无答案单元、目录条目和单元间 `\clearpage`：
 
-- 单元中没有 `answered` 或显式 `todo` 记录时，不输出该答案单元、目录条目或 `\clearpage`。
-- 组中没有可见记录时，不输出组标题。
-- 纯空白的兼容 `answer` 正文默认为 `omitted`，构建日志报告数量。
-- 作者希望保留占位时必须显式写 `status=todo`；reader 统一显示“暂无答案”或配置的占位文字。
-- 可提供仅供编辑审校的 `include-empty-units=true`，正式发布构建固定为 false。
+- 每个 `exercise` 都输出答案单元记录，即使其中没有答案；reader 仍按原顺序排标题和分页。
+- 含至少一个 `answer` 的组继续输出组标题；空的 `answer` 记为 `omitted`，但 reader 仍排出对应的空编号项。
+- 非空答案记为 `answered`；内部 schema 可识别显式 `todo`，但本轮不要求正文迁移到 todo 写法。
+- 日志报告总单元、组、题目、answered、todo 和 omitted 数量，以便和基线核对。
 
-每次生成结束应报告：章节单元数、习题组数、题目数、已答数、todo 数、空答案数和被省略单元数。异常下降可由 CI 阈值发现。
+“省略没有可见答案的单元”“删除空答案项”或引入正式 todo 政策都会改变现有答案 PDF，均延后为需要单独 review 的条件性变化。
 
 ### 2.5 原子生成与失败恢复
 
@@ -375,32 +384,24 @@ TeX 主进程不应直接截断最后一个可用的正式答案文件。建议�
 1. 在目标构建目录创建同一文件系统上的唯一临时目录或临时文件。
 2. 主文档只向临时目标写 manifest 和 inline body。
 3. 写入 schema header、记录总数以及结束 sentinel；关闭所有 stream。
-4. 辅助程序验证退出状态、sentinel、记录计数、所有 file 载荷和依赖均存在，并可选择执行一次 reader 语法检查。
-5. 验证成功后，以原子 rename 替换当前 manifest；验证失败则保留上一份成功产物并删除或隔离临时文件。
+4. 发布脚本先校验 schema/job、Begin/End 唯一性、marker 与 reader 命令对应、事件顺序、ID 连续唯一性和 unit/group/item/status 汇总计数。
+5. 答案册直接读取这份临时 manifest，并在唯一 staging 目录中完整编译；reader 独立校验 schema/job、状态转移、ID 和实际计数，同时让 TeX 验证不透明答案 body 的可编译性。主 PDF 同样暂存在 ASCII jobname 输出中。
+6. 只有主 PDF、答案 PDF 和 manifest 全部生成并验证成功后，Makefile 才集中将三者发布到正式路径；任一编译或发布前校验失败都保留上一份成功产物。manifest 使用同目录原子 rename，PDF 只在所有高风险步骤成功后才移入正式文件名。
 
-纯 TeX 无法跨平台可靠地完成最终原子 rename；该动作应放在 latexmk rule 或小型构建脚本中，而不是依赖 `\write18`。manifest 应带 schema 版本和主源码指纹，答案册发现不完整、过期或版本不兼容时必须失败，不能静默排版旧答案。
+纯 TeX 无法跨平台可靠地完成最终发布；临时路径、集中发布和 manifest 的同目录原子 rename 都由 Makefile 与小型发布脚本负责，不依赖 `\write18`。本轮 manifest 带 schema 版本和 job 身份；答案册发现缺失、不完整、事件顺序错误或版本/job 不匹配时必须失败，不能静默排版错误答案。源文件指纹与更强的过期检测可后续增加，不作为本轮完成条件。
 
 ### 2.6 并发、jobname 与构建目录
 
-固定文件名 `LALU-ans-contents.tex` 不再作为内部协议。输出身份至少由以下内容组成：
-
-- 显式 ASCII jobname；
-- 主文件规范化路径的短哈希，防止两个同名工程相撞；
-- 会影响答案内容的构建变体；
-- schema 版本。
-
-推荐目录形如：
+固定文件名 `LALU-ans-contents.tex` 不再作为内部协议。本轮 Makefile 使用显式 ASCII jobname 和独立构建目录，形如：
 
 ```text
-build/answers/LALU-<source-hash>/
-  manifest.tex
-  bodies/
-  generation.json
+build/answers/
+  LALU.manifest.tex
 ```
 
-不同 jobname 或工程可并行写不同目录。同一身份的并发构建使用每进程唯一临时目录，并通过锁或 compare-and-swap 决定谁发布最终 manifest；绝不能共同写同一个 open stream。答案册由构建命令显式传入 manifest 路径，源码中不硬编码当前工作目录。
+主文档写入与正式 manifest 同目录的唯一临时文件；构建命令把该临时路径和 job 身份显式传给答案册，并把答案 PDF 编译到唯一 staging 目录。不同 jobname/工程隔离、同一目标并发锁、source hash 和变体身份属于后续增强，本轮不宣称支持并行写同一个发布目标。
 
-`make clean` 只删除已知构建目录，不删除作者维护的 file 载荷。生成内容不写回源码目录，也不参与版本控制。
+`make clean` 删除已知答案构建目录和遗留生成文件；作者维护的正文不受影响。新生成内容不参与版本控制。
 
 ### 2.7 答案抽取器测试
 
@@ -408,16 +409,14 @@ build/answers/LALU-<source-hash>/
 
 - 普通章 A/B/C 三组，部分题有答案；
 - 普通章后的两个连续未竟专题，验证 `Nε`、`Nδ` 与中文全局序号；
-- 没有任何答案的 exercise、空组、空 answer、显式 todo；
+- 没有任何答案的 exercise、空组、空 answer、显式 todo；验证既有空项、单元和分页仍保留；
 - 自定义起始组号和超过 9 的题号；
 - 答案含多段、嵌套 enumerate、宏参数符号、注释、Unicode、标签和浮动体；
-- file 载荷含 verbatim/listing；
 - 主编译在写到一半时故意失败，旧 manifest 仍可用；
-- 两个不同 jobname 并行构建以及同一 jobname 的竞争构建；
-- manifest 缺尾标、记录计数错误、源哈希过期、file 载荷缺失时 reader 明确失败；
-- 新旧生成器的记录顺序和可见答案逐条对比。
+- manifest 缺尾标、记录计数错误、schema/job 不匹配时发布器或 reader 明确失败；
+- 新旧 PDF 的单元顺序、标题、组号、题号、答案正文、空项和分页逐项对比。
 
-## 三、定理、证明与引用框架
+## 三、定理、证明与引用框架（本轮已实施）
 
 ### 3.1 职责划分
 
@@ -468,7 +467,7 @@ build/answers/LALU-<source-hash>/
 
 `solution` 复用同一视觉框架，但默认不显示 QED，以保持现有行为。若未来需要 QED，使用显式选项，不通过正文手写 `\square` 推测。
 
-当前 `proof`/`solution` 的第二个可选参数可暂时作为原始 tcolorbox 选项透传；应扫描实际调用，若未使用则标记弃用，改由受控 key 列表代替任意样式注入。
+仓库扫描未发现 `proof`/`solution` 的第二个原始 tcolorbox 选项用法；它只属于模板 supporting structure，已直接删除，不保留弃用包装器。第一可选说明仍是作者接口，继续支持 `\begin{proof}[说明]` 和 `\begin{solution}[说明]`。
 
 ### 3.4 `autoref` 与 `cleveref`
 
@@ -482,18 +481,16 @@ build/answers/LALU-<source-hash>/
 
 每个 theorem counter 的 `\theH...` 必须从统一的唯一 chapter anchor 派生。正常章和连续未竟专题中，同样显示为 `.1` 的定理也必须拥有不同 destination。
 
-### 3.5 定理框架迁移兼容
+### 3.5 已实施的迁移
 
-迁移步骤如下：
+本轮实施结果如下：
 
-1. 统计所有环境调用形式、可选参数、空标题、空标签和手写 `\qedhere`/`\square`；建立代表性 fixture。
-2. 在测试分支中用 `amsthm` 替换 `ntheorem`，但保留现有 tcolorbox theorem 公共环境名、双参数语法、标签前缀和分别计数方式。
-3. 将 `\theoremheaderfont`、`\theorembodyfont` 的效果搬到集中 tcolorbox style；删除 ntheorem 命令前先验证字体快照。
-4. 用 amsthm proof + tcolorbox wrapper 替换手写尾部方块，修正真正需要 `\qedhere` 的少量正文。
-5. 集中生成 autoref/cleveref 配置并比较旧、新 `.aux` 中的标签值。
-6. 一个发布周期内保留旧 proof/solution 可选参数适配；弃用告警应包含源文件和行号。
+1. 用 `amsthm` 替换 `ntheorem`，保留现有 tcolorbox theorem 公共环境名、双参数语法、标签前缀和分别计数方式。
+2. 将六类 theorem 的名称、前缀、颜色、样式及 autoref/cleveref 名称集中声明。
+3. 用 amsthm proof/QED 栈配合 tcolorbox 外观替换手写尾部方块；普通 proof、嵌套 proof、display/align 中的 `\qedhere` 已由最小 fixture 覆盖，solution 仍无 QED。
+4. 删除无人使用的 proof/solution 第二可选原始样式参数；正文不需修改，第一可选说明保持。
 
-迁移提交必须要求干净重编译辅助文件。除明确列出的 QED 位置修正外，既有标签键和可见定理编号不得变化。
+整书审计已确认主讲义 892 页和答案册 272 页在 144 dpi 下逐页像素一致；主讲义 raw/layout 文本与基线一致，答案册 raw 文本一致。迁移要求干净重编译辅助文件；既有标签键、可见定理编号与默认 QED 版式均保持不变。
 
 ### 3.6 定理测试矩阵
 
@@ -512,34 +509,36 @@ build/answers/LALU-<source-hash>/
 
 ## 四、Breaking changes 与源码迁移
 
-这里把“breaking change”限定为：升级模板后，旧源码、构建命令、生成文件或外部链接即使重新编译，也不能自动保持原有语义，必须改写或显式迁移。单纯的内部实现替换、可接受的分页微调，以及清理辅助文件后即可恢复的变化不单独算作 breaking change。
+这里区分两类变化：
 
-### 4.1 明确会发生的兼容性中断
+- **作者/PDF breaking change**：`讲义/专题/`、`讲义/历年卷/`、`讲义/其它/` 中的既有公共写法必须改写，或最终 PDF 的可见内容、编号、顺序、分页、标签/引用语义发生变化。本轮原则上不允许，除非下面明确列出并经 review。
+- **supporting-structure breaking change**：只影响类、主模板、答案模板、Makefile、生成文件协议、内部 counter/helper/marker 或原始 href 名称。用户已确认这些无需向后兼容；只要正文和 PDF 可见行为不变，可以直接发生。
 
-| 计划中的变化 | 中断点 | 当前仓库中受影响的位置与定位方法 | 新写法或迁移动作 |
-| --- | --- | --- | --- |
-| 标准 `chapter` 改作所有有编号顶层单元的结构流水号 | 裸 `\value{chapter}`、`\arabic{chapter}`、`c@chapter` 及手工 `\setcounter`/`\addtocounter` 不再表示普通“第 N 讲” | 当前只在 `讲义/线性代数荣誉课辅学讲义.tex` 的章节和答案生成逻辑中出现；`讲义/专题/` 与 `讲义/其它/` 的手写正文目前没有这类依赖 | 普通讲次改读 `\LALUNormalChapterNumber`，当前可见引用改读 `\LALUCurrentReferenceNumber` 或 `\thechapter`，单元类型改查 `kind`；正文不得再直接改 `chapter` |
-| 无编号状态不再泄漏上一编号单元 | frontmatter、backmatter 或 `\chapter*` 后的 `\thechapter` 将为空；依赖其继续返回上一章号的宏会改变行为 | 当前手写正文没有这种读取；迁移时仍须把 `\thechapter`/`\theHchapter` 纳入模板和扩展宏扫描 | 需要最近普通讲次时显式查询 `\LALUNormalChapterNumber`，需要当前单元时先检查状态 API；不得把无编号边界后的 `\thechapter` 当历史快照 |
-| 删除跨章分组和历史 marker | `\LUgroupsancheck`、`\LUsection` 以及 `\@exist@LUchapter@...`/`\@exist@LUsection@...` 最终会消失 | 定位于主模板、`讲义/LALU-answers.tex` 和生成的 `LALU-ans-contents.tex`；各个未竟专题文件开头的 `\LUchapter{...}` 不受影响 | 删除主文件末尾等处的手工 sanity check；答案册只消费 `\LALUAnswerUnit` 等 manifest 事件，不再手工设置 `LUsection` 或探测 marker |
-| 对 phase 和单元位置执行严格校验 | 以前“碰巧可编译”的 `mainmatter` 首章之前的 LU、front/backmatter 或 appendix 中的 LU/习题、`secnumdepth` 抑制编号时的 LU，以及非法阶段回退将直接报错；重复 phase 命令不再重置页码或计数器 | 从主文件的 `\frontmatter`、`\mainmatter`、`\appendix`、`\backmatter` 和各文件的 `\LUchapter`、`\begin{exercise}` 定位；当前正式输入顺序没有发现违规项 | 在 `\mainmatter` 中先建立有编号的普通 `\chapter`，再写 `\LUchapter`；习题只放在普通章或 LU 单元内。`\chapter*` 后不能直接挂习题，但仍可继续写下一个 LU；首阶段不支持附录习题 |
-| 答案交换格式和输出路径改为带版本的 manifest | `LALU-ans-contents.tex` 的文件名、内容语法和可从源码目录直接 `\input` 的约定不再保证 | 主要影响主模板、`讲义/LALU-answers.tex`、`讲义/Makefile`、latexmk 配置和 CI，不要求逐篇改普通 inline 答案 | 构建命令把 manifest 路径显式传给答案册；只通过 manifest reader 读取 `\LALUAnswerUnit`/`Group`/`Item` 事件，生成文件一律不可手工编辑 |
-| 空答案和空答案单元获得明确状态语义 | 纯空白 `answer` 将变为 `omitted`；完全没有 `answered`/`todo` 的习题单元不再输出标题、目录项或空白分页 | 当前有 29 个纯空 `answer`，集中在第 2、3、4、7、8、9、10 讲；另有 15 个完全没有 `answer` 的单元，分布在第 6、12、16–25 讲及未竟专题 4、8、14 | 确实没有答案时删除空环境或接受省略；需要保留答案项或整个单元时，至少加入一个计划接口 `\begin{answer}[status=todo] ... \end{answer}` |
-| 答案单元和附录采用新的机器锚点命名空间 | 答案单元切换到 `LALUanswerunit.answer.*`，附录使用 `chapter.APP.*`；硬编码到旧 href 的外部 PDF 深链接或工具会失效 | 当前正文没有编号附录，正文的 `\label`/`\ref` 键原则上不改；主要迁移面是答案 PDF 的外部链接和下游 PDF 工具 | 发布说明列出 href 映射并尽可能提供一个版本的旧锚点别名；同时清理辅助文件并重建主讲义、答案册和 `xr` 缓存 |
-| `ntheorem` 退出依赖面 | 外部文档若依赖类“顺便加载” `ntheorem`，或直接调用它的样式/声明命令，将不再工作 | 当前正文没有直接调用；仓库内只有 `LALUbook.cls` 的 `\theoremheaderfont`、`\theorembodyfont` 等模板设置需要迁移 | 自定义定理接入新的集中声明表和 amsthm/tcolorbox 适配层；外部文档不得依赖类的传递包依赖 |
+因此，清理辅助文件并冷构建是本轮迁移动作；它不意味着要为旧 manifest、旧 counter alias 或旧 PDF destination 增加兼容层。
 
-上表中的“计划接口”只是目标写法，目前尚不是可执行命令；它们应在实现对应阶段时固定下来。一旦进入作者文档和正文，就必须遵循正常的弃用周期，不能在后续提交中无迁移说明地再次改名。
+### 4.1 本轮明确发生的内部兼容性中断
+
+| 本轮变化 | 被移除/改变的 supporting structure | 正文受影响位置与新写法 |
+| --- | --- | --- |
+| 章节状态改为显式记录 | 裸 `chapter` 变为结构流水号；`LUchapter`、`LUgreekchap` counter alias 可删除；无编号状态不再把上一单元伪装成当前单元 | 仓库扫描只在主模板内部命中 raw counter；`讲义/专题/`、`讲义/历年卷/`、`讲义/其它/` 无需改写，仍用 `\chapter`/`\LUchapter` 和正常 `\label`。模板内部改读语义状态 API |
+| 删除跨章开放分组和历史 marker | `\LUgroupsancheck`、`\LUsection`、`\@exist@LUchapter@...`、`\@exist@LUsection@...` 及配套 counter/marker 直接消失 | 命中只在主模板、答案模板和旧生成文件；正文各未竟专题开头的 `\LUchapter{...}` 不变，无需加入替代 helper |
+| 答案交换格式与路径改为带版本 manifest | `LALU-ans-contents.tex` 的文件名、命令语法和直接 `\input` 约定不再支持 | 只修改主模板、`讲义/LALU-answers.tex`、`讲义/Makefile` 和发布脚本；所有正文继续原样写 `exercise`/`exgroup`/`answer` |
+| 内部题目/单元 ID 与 href 命名空间改变 | 旧 manifest ID、`chapter.LU.*` 等旧 PDF 原始 destination 不承诺保留别名 | 正文 `\label` 键及 `\ref`/`\nameref`/`\autoref`/`\cref` 写法不变；只需清理辅助文件并重建，不需要逐篇修改 |
+| 定理语义层从 ntheorem 切换为 amsthm | 类不再传递加载 ntheorem，其私有 style 命令不可用 | 正文未直接调用 ntheorem；六类 theorem、proof、solution 的保留接口不变，因此正文无需改写 |
+| 删除 proof/solution 第二个原始 tcolorbox 选项 | `\begin{proof}[说明][任意样式]` 和 solution 同形内部签名不再接受第二项 | 全仓正文没有第二项调用；第一可选说明仍原样使用，无正文修改。若将来需要受控样式，应另行设计作者接口 |
+
+这些变化无需弃用周期，因为删除对象没有出现在约定范围内的正文中。任何新命令一旦写入正文或作者文档，才转为需要稳定和迁移说明的作者接口。
 
 ### 4.2 条件性 breaking changes 与迁移审计
 
-下列事项要么只有在采用可选设计时才构成兼容性中断，要么必须人工审计，但不能预先假定所有命中处都需要改写：
+下列提案本轮**不启用**；若以后采用，必须另做正文扫描、PDF 基线和迁移 review：
 
 - 如果答案册为 `\externaldocument` 加固定前缀，答案正文中指向主讲义的 `\ref`/`\nameref`/`\autoref`/`\cref` 要改为 `\mainref`/`\mainnameref`/`\mainautoref`/`\maincref` 等成套 helper。当前入口位于 `讲义/LALU-answers.tex`；启用前应先扫描所有 `answer` 载荷中的引用并验证没有同名标签。
-- 如果稳定习题 ID 从“建议”升级为“必填”，`exercise` 中相应的普通 `\item` 要改为 `\exitem[id=...]`。迁移初期必须继续自动生成 ID 并告警，不能一次性破坏现有全部习题。
+- 如果以后要求“在前面插题后已有答案 ID 不变”，就需要语义 ID 或显式 `\exitem[id=...]` 一类设计；当前自动 ID 允许随位置变化，本轮不要求正文标注。
 - amsthm proof 的公共语法和普通自动 QED 行为应保持兼容，但 QED 的具体位置需要视觉审计。当前有 27 个 proof 直接以 display 结束；典型位置为 `讲义/专题/9 矩阵运算进阶.tex:443`、`讲义/专题/13 多项式.tex:542` 和 `讲义/专题/21 线性代数与几何.tex:49`。只有希望方块留在最后一行公式内的用例才需加入 `\qedhere`，不能把 27 处一律机械改写；当前正文没有手写 `\square`。
-- inline `answer` 本来就不保证支持 verbatim、minted、listing 或特殊 catcode，因此 file payload 是新增能力而非当前仓库的 breaking change。若外部答案依赖这些“碰巧工作”的未保证行为，则应把内容移到独立片段，并通过计划接口 `\answerfile{answers/<stable-id>.tex}` 引用；当前基线没有此类载荷。
-- 如果在兼容期后移除 proof/solution 的第二个原始 tcolorbox 选项，外部源码中的 `\begin{proof}[说明][任意样式]` 或同形 `solution` 要迁移到受控 key。当前仓库只有第一可选参数用例，没有发现第二可选参数。
-- 如果在更晚版本移除 `LUchapter`、`LUgreekchap`、`LUsection` counter alias，外部源码对这些 counter 的直接读取也会失效；当前仓库中的直接使用只在模板和生成文件内，应先由统一状态 API 取代。
-- 其他 section、公式、定理等后代 destination 只有在确认现值冲突时才改变；普通章和 LU 的既有 destination 仍以保留为默认。若不得不改变，必须按外部 PDF 深链接的 breaking change 处理，而不能把“清理 `.aux` 即可”当作充分迁移说明。
+- file payload/`\answerfile` 仍只是未来提案；当前 inline `answer` 明确只支持普通 LaTeX token，不支持 verbatim、minted、listing 或特殊 catcode，仓库正文没有此类载荷。
+- 省略空答案项、完全无答案的单元、目录条目或分页，以及要求用显式 todo 保留它们，都会改变答案 PDF；本轮继续保留这些可见对象，不采用省略策略。
+- 改变六类 theorem 的双参数语法、标签前缀、分别计数方式，或改 proof/solution 第一可选说明，都仍是条件性 breaking change，本轮不动。
 - 支持引擎矩阵尚未最终确定；一旦决定不支持 LuaLaTeX 等引擎，这些非正式构建流程将改为早期失败。当前 Makefile 使用 XeLaTeX，不影响正文；若要把其他引擎列为受支持，须先补齐字体、索引、书签和回归测试。
 - 如果无法可靠恢复 `\includeonly` 所需的非 counter 状态，可以明确禁止跨普通章/LU 的选择构建。当前主讲义使用 `\input`，因此仓库正文不受影响；外部使用者若依赖 `\includeonly`，应改为完整构建或等待 checkpoint 协议落地。
 
@@ -548,10 +547,11 @@ build/answers/LALU-<source-hash>/
 以下常用正文写法不应因本次重构而修改：
 
 - 普通章继续写 `\chapter{标题}`，未竟专题继续写 `\LUchapter{标题}`；新增的 `\LUchapter[短标题]{完整标题}` 只是可选扩展。
-- 普通 inline 答案继续写 `\begin{answer} ... \end{answer}`；只有空占位和特殊 catcode 载荷需要迁移。
+- 普通 inline 答案继续写 `\begin{answer} ... \end{answer}`；既有空 `answer` 也不需迁移。特殊 catcode 载荷不在该接口的支持范围内，本轮不引入替代语法。
 - definition、example、lemma、theorem、corollary、axiom 继续保留当前双参数形式和标签前缀。
 - `\begin{proof}[说明]` 与 `\begin{solution}[说明]` 的第一可选参数继续有效。
-- 既有 `\label` 键、普通章 `chapter.N` 和未竟专题 `chapter.LU.N` 锚点应保留；正常的 `\ref`、`\nameref`、`\autoref` 和 `\cref` 源码不要求批量改写。
+- 既有 `\label` 键及正常的 `\ref`、`\nameref`、`\autoref` 和 `\cref` 源码不要求批量改写；这些引用的可见结果和目标页面应保持。原始 href destination 字符串是内部细节，不在此承诺内。
+- 空答案项、无答案单元、答案目录项及既有分页继续保留；正文不需要新增 `status=todo` 才能维持现有 PDF。
 
 ### 4.4 迁移时的定位清单
 
@@ -572,46 +572,54 @@ rg -n -U --pcre2 --glob '*.tex' '(?:\\\]|\\end\{(?:equation\*?|align\*?|alignat\
 
 ## 五、分阶段落地顺序
 
-### 阶段 0：冻结基线与建立检查工具
+### 阶段 0：冻结基线（已完成）
 
 - 保存当前完整 PDF、答案 PDF、`.aux` 标签表、`.toc`、PDF outline 和归一化日志。
-- 建立章节、答案、定理三个最小回归文档。
-- 在 CI 中加入重复 destination、未定义引用、PDF string 警告和残留 rerun 的失败规则。
-- 统计当前答案记录数、空答案数、定理环境调用签名及标签前缀。
+- 记录主讲义和答案册的页面数、页面尺寸和抽取文本哈希。
+- 扫描答案记录、空答案、定理环境调用签名、proof 可选参数及标签前缀。
 
-这一阶段只增加测试和基线，不改变产物。
+基线只用于回归比较，不加入生产构建。
 
-### 阶段 1：引入统一章节状态，保持公共接口
-
-- 在类中加入结构 `chapter`、普通显示计数器、LU 流水号、slot、appendix 显示计数器以及统一章节记录。
-- 提供语义查询 API，替换模板内部所有把裸 `chapter` 当普通显示编号的用法，并启用静态检查。
-- 在既有 `\chapter`、`\LUchapter` 外观后切换到新状态机。
-- 移除跨章节开放分组和历史 marker 的内部依赖；兼容命令暂留。
-- 同时改造答案册的统一 `LALUanswerunit` renderer，但暂不切换答案生成格式。
-- 通过章节测试矩阵和旧、新目录/outline 对比后合并。
-
-### 阶段 2：答案 manifest 双写与原子发布
-
-- 定义带版本的记录 schema、reader 和 file 载荷接口。
-- 构建系统同时生成 legacy 文件与新 manifest，分别编译答案册并逐记录比较。
-- 加入临时目录、结束 sentinel、原子 rename、过期检查和并发测试。
-- 将含 verbatim 或 catcode 风险的答案迁移到 file 载荷。
-- 对比通过后切换答案册读取新 manifest；保留一次发布周期的 legacy reader。
-
-### 阶段 3：统一定理和证明框架
+### 阶段 1：统一定理和证明框架（已实施）
 
 - 移除 ntheorem 语义层，引入 amsthm proof/QED。
 - 保持 tcolorbox theorem 的旧环境名、双参数语法、计数器行为和标签前缀。
 - 集中 theorem 声明、样式及 autoref/cleveref 配置。
-- 修正并测试 display math 的 `\qedhere`，进行分页与字体 golden PDF 对比。
+- 删除无人使用的 proof/solution 第二可选原始样式参数；保留第一可选说明。
+- 用最小 fixture 验证普通、嵌套和 display/align `\qedhere`，再纳入整书 PDF 对比。
 
-### 阶段 4：清理兼容层
+### 阶段 2：引入统一章节状态（已实施）
 
-- 在确认仓库及外部维护文档已迁移后，删除 `\LUgroupsancheck`、动态 `@exist@...` marker、旧答案 reader 和原始样式透传。
-- 更新作者文档，说明 `\LUchapter`、稳定习题 ID、todo、file answer、proof 和引用的推荐写法。
-- 将旧生成文件从构建流程和清理规则中彻底移除。
+- 在主模板中加入结构 `chapter`、普通显示计数器、LU 流水号、slot、appendix 显示计数器以及统一章节记录。
+- 提供语义查询 API，替换模板内部所有把裸 `chapter` 当普通显示编号的用法，并启用静态检查。
+- 在既有 `\chapter`、`\LUchapter` 外观后切换到新状态机。
+- 直接移除跨章节开放分组、旧 counter alias 和历史 marker，不保留兼容命令。
+- 通过章节测试矩阵以及旧、新目录/outline/标签值/PDF 代表页面对比后完成。
 
-每个阶段独立可回退，不把章节、答案和定理三类高风险改动塞进同一个不可审查提交。
+### 阶段 3：答案 manifest 与原子发布（已实施）
+
+- 定义带版本的 inline-token 事件 schema 和统一 `LALUanswerunit` renderer。
+- 主编译写同目录唯一临时文件；发布脚本校验 schema、sentinel、严格事件顺序、ID 和统计。
+- Makefile 将临时 manifest 路径和 job 身份传给答案册；reader 对缺失、版本/job 不匹配、事件顺序、ID 和计数错误明确失败。主 PDF 和答案 PDF 先留在 staging 路径，答案册成功后才与 manifest 集中发布，因此答案 body 的 TeX 错误不会提前覆盖任一份正式产物。
+- 发布器负向 fixture 已覆盖 Begin/End 错位、marker/command 不匹配、行尾额外 TeX、未闭合参数、重复 footer、非连续 ID 和统计不一致，这些输入均以非零状态拒绝。
+- 直接切换新 reader，不双写 legacy 文件，也不保留旧 `LALU-ans-contents.tex` reader。
+- 比较新旧答案 PDF 的单元、标题、组号、题号、正文、空答案、无答案单元和分页。
+
+### 阶段 4：整书验证与收尾（已完成）
+
+- 在本机 MacTeX 上从 `make clean` 开始完整构建主讲义和答案册，并确认构建返回值能传播索引/manifest 失败。
+- 检查 duplicate destination、undefined reference、PDF string warning 和残留 rerun 提示。
+- 对照基线检查页面数、页面尺寸、抽取文本、目录/outline、标签表和全书像素；最终主讲义 892/892 页、答案册 272/272 页在 144 dpi 下均无像素差异。
+- 清理构建产物，确认只保留本轮源码修改和用户原有的无关工作区改动。
+
+### 后续 review（不属于本轮）
+
+- 设计插题后仍稳定的显式习题 ID。
+- 决定是否需要 file answer，以及它是否值得改变正文作者接口。
+- 评估空答案/todo/空单元省略政策；任何改变先审核答案 PDF 的可见差异。
+- 逐项 review 第 4.2 节的其余条件性 breaking changes。
+
+定理/证明改动单独提交；章节记录与答案 manifest 共享同一语义 API，以一个始终可编译的原子提交落地，文档同步另作提交。
 
 ## 六、总体验收标准
 
@@ -623,15 +631,16 @@ rg -n -U --pcre2 --glob '*.tex' '(?:\\\]|\\end\{(?:equation\*?|align\*?|alignat\
 4. 主 PDF 与答案 PDF 日志中不存在重复 destination；所有内部链接和 `xr` 链接指向正确页面。
 5. 目录与 PDF outline 中每个单元恰有一条记录，中文标题、Unicode 希腊编号和层级正确。
 6. `\ref`、`\nameref`、`\autoref`、`\cref` 以及范围引用覆盖普通章、未竟专题、附录、节、公式和六类定理，输出与兼容约定一致。
-7. 没有可见答案的单元不生成答案册标题页；显式 todo 按配置生成统一占位。
-8. 主文档失败、答案记录损坏或载荷缺失时，不覆盖上一份有效 manifest，并以非零状态失败。
-9. 不同 jobname 可并发构建；同一目标的竞争构建不会产生交叉或半截文件。
-10. 普通 inline 答案保持宏、段落和标签语义；file 答案可正常包含 verbatim/listing。
-11. 现有定理环境调用在兼容阶段无需批量人工修改，编号和标签键不变。
+7. 空 `answer` 仍生成原有空编号项；完全没有答案的单元仍保留原有标题、目录项和分页，答案 PDF 的可见顺序与基线一致。
+8. 主文档失败或临时 manifest 的 schema、sentinel、统计校验失败时，不覆盖上一份有效的主 PDF、答案 PDF 或 manifest，并以非零状态失败；reader 对缺失、损坏或 job/version 不匹配明确失败。
+9. 答案构建只读已结束且校验通过的临时 manifest，并将答案 PDF 写入 staging 目录；主编译、结构校验或答案 TeX 任一失败都不提前覆盖正式产物。全部成功后才集中移入两份 PDF 并以同目录原子 rename 替换 manifest；同一发布目标的并发构建不在本轮支持范围内。
+10. 普通 inline 答案保持宏、段落和标签语义；测试边界明确排除 verbatim、minted、listing 和特殊 catcode。
+11. 现有定理环境调用无需批量人工修改，编号、标签键、双参数接口和 proof/solution 第一可选说明不变。
 12. proof 在普通文本、display math、跨页和嵌套场景中 QED 恰好出现一次；solution 缺省无 QED。
 13. 章节状态、答案 renderer 和 theorem 声明各有单一实现来源，不再存在两套通过历史 marker 或开放分组彼此模仿的逻辑。
 14. frontmatter、backmatter 和星号章不递增结构/显示 counter；重复阶段命令不重置任何章节状态，非法阶段回退明确失败；每个编号附录只递增结构与 appendix 显示 counter，且不会把结构 `c@chapter` 清零。
 15. 全部手写源码（包括类和模板）都不存在把裸 `\value{chapter}`、`\arabic{chapter}`、`\setcounter{chapter}`、`\addtocounter{chapter}` 或 `c@chapter` 当作普通显示编号的调用；确需读写结构值的统一模块代码均在静态检查白名单中。
-16. 受支持 TeX Live 版本的测试全部通过；不支持的引擎在加载早期给出明确错误。
+16. 本机 MacTeX/XeLaTeX 的最小 fixture 和完整 `make clean && make` 均通过；Docker、其他 TeX Live 版本和其他引擎不作为本轮验收项。
 17. 无普通章、错误 phase、编号被抑制或希腊 slot 超界时，`\LUchapter` 都在改变任何 counter、当前记录或样式前失败；修正输入后可继续构建，不受半初始化状态污染。
 18. frontmatter、mainmatter 首章之前、backmatter、星号章、appendix 入口空隙及首阶段的附录章都不会把习题误挂到上一个正文/LU 单元；不支持的附录答案以明确错误结束。
+19. 主讲义和答案册的可见文本、章节/答案顺序、空答案项、无答案单元及分页与冻结基线一致；允许内部 counter、manifest 命令和 href destination 名称变化。
