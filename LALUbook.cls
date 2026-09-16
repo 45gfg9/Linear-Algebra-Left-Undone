@@ -185,6 +185,14 @@
     \end{tcblaluthmbox}%
 }
 
+% 定理环境的名称、颜色、标签前缀与引用名称由同一处声明。
+\newcommand*{\LALU@DeclareBoxedTheorem}[4]{%
+    \newtcbtheorem[number within=chapter]{#1}{#2}{laluthmstyle={#3}}{#4}%
+    \expandafter\def\csname tcb@cnt@#1autorefname\endcsname{#2}%
+    \crefname{tcb@cnt@#1}{#2}{#2}%
+    \Crefname{tcb@cnt@#1}{#2}{#2}%
+}
+
 \NewDocumentCommand{\term}{m}{{\sffamily\heiti\bfseries{#1}}}
 
 \DeclareMathOperator{\Ob}{Ob}
@@ -205,12 +213,12 @@
     \RequirePackage{bookmark}
     \RequirePackage{cleveref}
 
-    \newtcbtheorem[number within=chapter]{definition}{定义}{laluthmstyle={red}}{def}
-    \newtcbtheorem[number within=chapter]{example}{例}{laluthmstyle={blue}}{ex}
-    \newtcbtheorem[number within=chapter]{lemma}{引理}{laluthmstyle={orange}}{lem}
-    \newtcbtheorem[number within=chapter]{theorem}{定理}{laluthmstyle={violet}}{thm}
-    \newtcbtheorem[number within=chapter]{corollary}{推论}{laluthmstyle={green}}{cor}
-    \newtcbtheorem[number within=chapter]{axiom}{公理}{laluthmstyle={olive}}{axm}
+    \LALU@DeclareBoxedTheorem{definition}{定义}{red}{def}
+    \LALU@DeclareBoxedTheorem{example}{例}{blue}{ex}
+    \LALU@DeclareBoxedTheorem{lemma}{引理}{orange}{lem}
+    \LALU@DeclareBoxedTheorem{theorem}{定理}{violet}{thm}
+    \LALU@DeclareBoxedTheorem{corollary}{推论}{green}{cor}
+    \LALU@DeclareBoxedTheorem{axiom}{公理}{olive}{axm}
 
     \hypersetup{
         unicode,
@@ -235,15 +243,6 @@
     \renewcommand{\equationautorefname}{式}
     \renewcommand{\chapterautorefname}{章}
     \renewcommand{\sectionautorefname}{节}
-    \makeatletter
-    \newcommand{\tcb@cnt@theoremautorefname}{定理}
-    \newcommand{\tcb@cnt@lemmaautorefname}{引理}
-    \newcommand{\tcb@cnt@corollaryautorefname}{推论}
-    \newcommand{\tcb@cnt@exampleautorefname}{例}
-    \newcommand{\tcb@cnt@definitionautorefname}{定义}
-    \newcommand{\tcb@cnt@axiomautorefname}{公理}
-    \makeatother
-
     % https://tex.stackexchange.com/a/2244/316373
     \makeatletter
     \renewcommand*\env@matrix[1][*\c@MaxMatrixCols c]{%
