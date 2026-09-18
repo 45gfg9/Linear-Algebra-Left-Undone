@@ -206,7 +206,15 @@
 \newcommand{\Set}{\mathsf{Set}}
 \newcommand{\FSet}{\mathsf{FSet}}
 
-\AtEndPreamble{
+% 文档入口在自身的宏包和定义之后显式调用此命令，以保持
+% hyperref/cleveref 的载入次序，而不依赖隐式的 begin-document 钩子。
+\newif\ifLALU@preamble@finalized
+\newcommand*{\LALUFinalizePreamble}{%
+  \ifLALU@preamble@finalized
+    \ClassError{LALUbook}{Preamble already finalized}%
+      {Call \string\LALUFinalizePreamble\space exactly once, after document-specific packages and definitions.}%
+  \else
+    \global\LALU@preamble@finalizedtrue
     \RequirePackage[Bjornstrup]{fncychap} % found on Internet
 
     % hyperref 与 cleveref 需要最后引入
@@ -226,9 +234,9 @@
     }
     \NewCommandCopy{\LALU@hyperref@autoref}{\autoref}
     \RenewDocumentCommand{\autoref}{s m}{%
-        \IfBooleanTF{#1}
-            {\LALU@hyperref@autoref*{#2}}
-            {\LALU@hyperref@autoref{#2}}%
+        \IfBooleanTF{##1}
+            {\LALU@hyperref@autoref*{##2}}
+            {\LALU@hyperref@autoref{##2}}%
         \xspace
     }
 
@@ -263,13 +271,13 @@
     \renewcommand{\chapterautorefname}{章}
     \renewcommand{\sectionautorefname}{节}
     % https://tex.stackexchange.com/a/2244/316373
-    \makeatletter
     \renewcommand*\env@matrix[1][*\c@MaxMatrixCols c]{%
     \hskip -\arraycolsep
     \let\@ifnextchar\new@ifnextchar
-    \array{#1}}
-    \makeatother
+    \array{##1}}
 
-    \crefrangeformat{equation}{式~#3#1#4--#5#2#6}
-    \crefrangeformat{example}{例~#3#1#4--#5#2#6}
+    \crefrangeformat{equation}{式~##3##1##4--##5##2##6}
+    \crefrangeformat{example}{例~##3##1##4--##5##2##6}
+  \fi
 }
+\@onlypreamble\LALUFinalizePreamble
