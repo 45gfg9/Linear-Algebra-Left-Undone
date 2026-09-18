@@ -1,7 +1,12 @@
 MAIN_JOB := LALU
 
 LATEXMK := latexmk
-LATEXMK_FLAGS := -xelatex -shell-escape -interaction=nonstopmode -file-line-error
+LATEXMK_FLAGS := \
+	-xelatex \
+	-interaction=nonstopmode \
+	-halt-on-error \
+	-file-line-error \
+	-no-shell-escape
 ANSWER_BUILD_DIR := build/answers
 ANSWER_MANIFEST := $(ANSWER_BUILD_DIR)/$(MAIN_JOB).manifest.tex
 ANSWER_PUBLISHER := scripts/publish-answer-manifest.pl
