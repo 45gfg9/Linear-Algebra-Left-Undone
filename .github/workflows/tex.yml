@@ -36,5 +36,5 @@ jobs:
           name: LALU-build-${{ github.run_number }}-${{ steps.build.outputs.sha }}
           if-no-files-found: error
           path: |
-            ${{ github.workspace }}/讲义/LALU.pdf
-            ${{ github.workspace }}/讲义/LALU-answers.pdf
+            讲义/LALU.pdf
+            讲义/LALU-answers.pdf
