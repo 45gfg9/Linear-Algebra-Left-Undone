@@ -62,6 +62,7 @@
 
 % 加入字串处理功能
 \RequirePackage{xstring}
+\RequirePackage{xspace}
 
 % 设置天眉所需
 \RequirePackage{fancyhdr}
@@ -212,6 +213,24 @@
     \RequirePackage{hyperref}
     \RequirePackage{bookmark}
     \RequirePackage{cleveref}
+
+    % hyperref 在链接组内组装引用文字，XeCJK 因此无法总是从
+    % 后继中文字符自动推断边界间距。xspace 在正文前补等价空格，
+    % 而在中英文标点和括号前保持紧贴。
+    \xspaceaddexceptions{%
+        ,.;:!?()[]%
+        ，。．、；：？！%
+        （）［］〔〕【】〖〗〘〙〚〛%
+        〈〉《》「」『』“”‘’%
+        …—·%
+    }
+    \NewCommandCopy{\LALU@hyperref@autoref}{\autoref}
+    \RenewDocumentCommand{\autoref}{s m}{%
+        \IfBooleanTF{#1}
+            {\LALU@hyperref@autoref*{#2}}
+            {\LALU@hyperref@autoref{#2}}%
+        \xspace
+    }
 
     \LALU@DeclareBoxedTheorem{definition}{定义}{red}{def}
     \LALU@DeclareBoxedTheorem{example}{例}{blue}{ex}

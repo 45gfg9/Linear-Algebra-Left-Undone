@@ -1112,7 +1112,7 @@
     a_1 x_1 + a_2 x_2 + \cdots + a_n x_n = 1
 \]
 
-我们记 $a = (a_1,a_2,\ldots,a_n)^\mathrm{T}, x = (x_1,x_2,\ldots,x_n)^\mathrm{T}$，于是上面的方程可以简化为 $a^\mathrm{T} x = 1$. 根据线性空间同构于其对偶，$a \in \mathbf{F}^n$ 与 $a^\mathrm{T} x = 1$（视为 $(\mathbf{F}^n)^*$ 中的元素，回忆\autoref{eq:6:线性泛函与超平面对应} ）是一一对应的关系. 于是我们接下来可以给出\autoref{thm:对偶映射的矩阵表示} 从几何上的理解. 考虑超平面方程 $a^\mathrm{T} x = 1$，则与这个超平面对偶的点是 $a$. 设 $\sigma \in \mathcal{L}(\mathbf{F}^n,\mathbf{F}^m)$，根据\autoref{lem:向量空间线性映射的矩阵表示}，$\sigma$ 与一个矩阵 $M$ 对应.
+我们记 $a = (a_1,a_2,\ldots,a_n)^\mathrm{T}, x = (x_1,x_2,\ldots,x_n)^\mathrm{T}$，于是上面的方程可以简化为 $a^\mathrm{T} x = 1$. 根据线性空间同构于其对偶，$a \in \mathbf{F}^n$ 与 $a^\mathrm{T} x = 1$（视为 $(\mathbf{F}^n)^*$ 中的元素，回忆\autoref{eq:6:线性泛函与超平面对应}）是一一对应的关系. 于是我们接下来可以给出\autoref{thm:对偶映射的矩阵表示} 从几何上的理解. 考虑超平面方程 $a^\mathrm{T} x = 1$，则与这个超平面对偶的点是 $a$. 设 $\sigma \in \mathcal{L}(\mathbf{F}^n,\mathbf{F}^m)$，根据\autoref{lem:向量空间线性映射的矩阵表示}，$\sigma$ 与一个矩阵 $M$ 对应.
 
 我们对 $a \in \mathbf{F}^n$ 作用上 $\sigma$，得到了 $\sigma(a) = Ma \in \mathbf{F}^m$. 而与 $\sigma(a)$ 对应的超平面方程是 $(Ma)^\mathrm{T} x' = 1$，即 $(a^\mathrm{T}M^\mathrm{T}) x' = 1$，即新的超平面和原来的超平面相差一个 $M^\mathrm{T}$，即 $(\mathbf{F}^m)^*$ 与 $(\mathbf{F}^n)^*$ 之间相差了 $M^\mathrm{T}$. 因此，从几何直观上，我们也验证了转置和对偶映射的对应关系.
 
