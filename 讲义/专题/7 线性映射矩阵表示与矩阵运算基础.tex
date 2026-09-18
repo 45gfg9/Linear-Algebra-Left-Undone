@@ -374,7 +374,7 @@
 
 \begin{proof}
     这一结论可以直接从交换图中得到. 事实上 $X = \varphi_{B_1}(\alpha)$，而
-    \[Y = \varphi_{B_2}(\sigma(\alpha)) = \varphi_{B_2}(\varphi_{B_2}^{-1}(\sigma_\mathbf{M}(\varphi_{B_1}(\alpha)))) = \sigma_\mathbf{M}(\varphi_{B_1}(\alpha)) = \sigma_\mathbf{M}(X) = AX\]
+    \[Y = \varphi_{B_2}(\sigma(\alpha)) = \varphi_{B_2}(\varphi_{B_2}^{-1}(\sigma_\mathbf{M}(\varphi_{B_1}(\alpha)))) = \sigma_\mathbf{M}(\varphi_{B_1}(\alpha)) = \sigma_\mathbf{M}(X) = AX \qedhere\]
 \end{proof}
 
 其中第二个等号来源于交换图的要求，最后一个等号因为 $A$ 是 $\sigma$ 在 $B_1$ 和 $B_2$ 下的矩阵表示，回忆矩阵表示的流程即得. 总结一下，\autoref{thm:线性映射对向量坐标的影响} 表明，$\sigma(\alpha) = \beta$ 中 $\beta$ 和 $\alpha$ 坐标间的关联为 $Y = AX$，这就相当于在 $\mathbf{F}^n$ 和 $\mathbf{F}^m$ 中向量之间建立了一个与 $\sigma: V_1 \to V_2$同步的映射 $X \mapsto \mathbf{M}(\sigma)X$，每当$V$中向量经过 $\sigma$ 映射后，它的坐标也就经过了 $\mathbf{M}(\sigma)$ 的映射.
